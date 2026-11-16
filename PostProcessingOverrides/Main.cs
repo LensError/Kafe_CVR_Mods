@@ -1,4 +1,4 @@
-﻿using ABI_RC.Core;
+using ABI_RC.Core;
 using ABI_RC.Core.Networking.IO.Instancing;
 using ABI_RC.Core.Player;
 using ABI_RC.Core.Savior;
@@ -48,7 +48,6 @@ public class PostProcessingOverrides : MelonMod
     private static PostProcessLayer _currentWorldLayer;
     private static PostProcessVolume _currentWorldModVolume;
     private static readonly PostProcessProfile ModProfile = ScriptableObject.CreateInstance<PostProcessProfile>();
-    private static bool _currentWorldInitialized;
     private static bool _currentWorldPPLoaded;
 
     // Current world original settings
@@ -95,7 +94,6 @@ public class PostProcessingOverrides : MelonMod
         {
             // Reset world
             _currentWorldPPLoaded = false;
-            _currentWorldInitialized = false;
         });
 
         #if DEBUG
@@ -113,7 +111,7 @@ public class PostProcessingOverrides : MelonMod
         return !string.IsNullOrEmpty(_currentWorldGuid);
     }
 
-    internal static void SaveConfigAndApplyChanges(bool applyChanges)
+    internal static void SaveConfigAndApplyChanges(bool applyChanges, bool notifyConfigChanged = true)
     {
         // Save the current config to file
         var instancesConfigPath = Path.GetFullPath(Path.Combine("UserData", PostProcessingOverridesConfigFile));
@@ -123,7 +121,8 @@ public class PostProcessingOverrides : MelonMod
         File.WriteAllText(instancesConfigFile.FullName, jsonContent);
 
         // The config has changed event
-        ConfigChanged?.Invoke();
+        if (notifyConfigChanged)
+            ConfigChanged?.Invoke();
 
         // Apply the current config to the world
         if (applyChanges) WorldManager.PostProcessingController.ApplyOverrides();
@@ -165,28 +164,55 @@ public class PostProcessingOverrides : MelonMod
         public float Threshold = 1.0f;
     }
 
-    public record JsonConfigPPSettingAO : JsonConfigPPSetting;
+    public record JsonConfigPPSettingAO : JsonConfigPPSetting
+    {
+        public float Intensity = 0.0f;
+    }
 
     public record JsonConfigPPSettingColorGrading : JsonConfigPPSetting
     {
-        // public float Brightness = 0.2f;
-        // public float HueShift = 0.0f;
-        // public GradingMode GradingMode = GradingMode.HighDefinitionRange;
+        [JsonConverter(typeof(StringEnumConverter))]
+        public GradingMode GradingMode = GradingMode.HighDefinitionRange;
+        public float PostExposure = 0.0f;
+        public float Brightness = 0.0f;
+        public float HueShift = 0.0f;
     }
 
-    public record JsonConfigPPSettingAutoExposure : JsonConfigPPSetting;
+    public record JsonConfigPPSettingAutoExposure : JsonConfigPPSetting
+    {
+        public float KeyValue = 1.0f;
+    }
 
-    public record JsonConfigPPSettingChromaticAberration : JsonConfigPPSetting;
+    public record JsonConfigPPSettingChromaticAberration : JsonConfigPPSetting
+    {
+        public float Intensity = 0.0f;
+    }
 
-    public record JsonConfigPPSettingDepthOfField : JsonConfigPPSetting;
+    public record JsonConfigPPSettingDepthOfField : JsonConfigPPSetting
+    {
+        public float FocusDistance = 10.0f;
+        public float Aperture = 5.6f;
+    }
 
-    public record JsonConfigPPSettingGrain : JsonConfigPPSetting;
+    public record JsonConfigPPSettingGrain : JsonConfigPPSetting
+    {
+        public float Intensity = 0.0f;
+    }
 
-    public record JsonConfigPPSettingLensDistortion : JsonConfigPPSetting;
+    public record JsonConfigPPSettingLensDistortion : JsonConfigPPSetting
+    {
+        public float Intensity = 0.0f;
+    }
 
-    public record JsonConfigPPSettingMotionBlur : JsonConfigPPSetting;
+    public record JsonConfigPPSettingMotionBlur : JsonConfigPPSetting
+    {
+        public float ShutterAngle = 270.0f;
+    }
 
-    public record JsonConfigPPSettingVignette : JsonConfigPPSetting;
+    public record JsonConfigPPSettingVignette : JsonConfigPPSetting
+    {
+        public float Intensity = 0.0f;
+    }
 
     public record JsonConfigPPSettings()
     {
@@ -219,12 +245,20 @@ public class PostProcessingOverrides : MelonMod
         public JsonConfigPPSettingVignette Vignette = new();
     }
 
+    private static void ApplyModProfileSetting<T>(OverrideSetting active, Action<T> configure) where T : PostProcessEffectSettings
+    {
+        if (!ModProfile.TryGetSettings(out T settings))
+            settings = ModProfile.AddSettings<T>();
+
+        var isOverride = active == OverrideSetting.Override;
+        settings.enabled.value = isOverride;
+        settings.enabled.overrideState = isOverride;
+        configure(settings);
+    }
+
     private static void UpdatePostProcessing(PostProcessingController ppController)
     {
-        if (!WorldManager.IsWorldLoaded)
-            return;
-
-        if (!_currentWorldInitialized && _currentWorldPPLoaded)
+        if (!WorldManager.IsWorldLoaded || !_currentWorldPPLoaded || _currentWorldModVolume == null || _currentWorldLayer == null)
             return;
 
         var currentConfig = Config.WorldPPConfigs[_currentWorldGuid];
@@ -235,14 +269,14 @@ public class PostProcessingOverrides : MelonMod
             case OverrideType.Original:
                 _currentWorldModVolume.enabled = false;
                 _currentWorldLayer.enabled = _originalEnabled;
-                PortableCamera.Instance.CopyRefCamValues(_currentWorldCamera);
+                PortableCamera.Instance?.CopyRefCamValues(_currentWorldCamera);
                 // We're done here, the original behavior was loaded by CVR before this was called
                 return;
 
             case OverrideType.Off:
                 _currentWorldModVolume.enabled = false;
                 _currentWorldLayer.enabled = false;
-                PortableCamera.Instance.CopyRefCamValues(_currentWorldCamera);
+                PortableCamera.Instance?.CopyRefCamValues(_currentWorldCamera);
                 // We're done here, we disabled everything
                 return;
 
@@ -258,38 +292,88 @@ public class PostProcessingOverrides : MelonMod
         // Set the PP overrides state
         _currentWorldModVolume.enabled = true;
         _currentWorldLayer.enabled = true;
-        PortableCamera.Instance.CopyRefCamValues(_currentWorldCamera);
+        PortableCamera.Instance?.CopyRefCamValues(_currentWorldCamera);
 
         // Configure our global override profile
+        ApplyModProfileSetting<Bloom>(configToBeUsed!.Bloom.Active, bloom =>
+        {
+            var isOverride = configToBeUsed.Bloom.Active == OverrideSetting.Override;
+            bloom.intensity.value = configToBeUsed.Bloom.Intensity;
+            bloom.intensity.overrideState = isOverride;
+            bloom.threshold.value = configToBeUsed.Bloom.Threshold;
+            bloom.threshold.overrideState = isOverride;
+        });
 
-        // Bloom
-        if (!ModProfile.TryGetSettings(out Bloom bloom))
-            bloom = ModProfile.AddSettings<Bloom>();
+        ApplyModProfileSetting<AmbientOcclusion>(configToBeUsed.AO.Active, ao =>
+        {
+            var isOverride = configToBeUsed.AO.Active == OverrideSetting.Override;
+            ao.intensity.value = configToBeUsed.AO.Intensity;
+            ao.intensity.overrideState = isOverride;
+        });
 
-        bloom.enabled.value = configToBeUsed!.Bloom.Active == OverrideSetting.Override;
-        bloom.enabled.overrideState = configToBeUsed.Bloom.Active == OverrideSetting.Override;
-        // Bloom Intensity
-        bloom.intensity.value = configToBeUsed.Bloom.Intensity;
-        bloom.intensity.overrideState = configToBeUsed.Bloom.Active == OverrideSetting.Override;
-        // Bloom Threshold
-        bloom.threshold.value = configToBeUsed.Bloom.Threshold;
-        bloom.threshold.overrideState = configToBeUsed.Bloom.Active == OverrideSetting.Override;
+        ApplyModProfileSetting<ColorGrading>(configToBeUsed.ColorGrading.Active, colorGrading =>
+        {
+            var isOverride = configToBeUsed.ColorGrading.Active == OverrideSetting.Override;
+            colorGrading.postExposure.value = configToBeUsed.ColorGrading.PostExposure;
+            colorGrading.postExposure.overrideState = isOverride;
+            colorGrading.brightness.value = configToBeUsed.ColorGrading.Brightness;
+            colorGrading.brightness.overrideState = isOverride;
+            colorGrading.hueShift.value = configToBeUsed.ColorGrading.HueShift;
+            colorGrading.hueShift.overrideState = isOverride;
+            colorGrading.gradingMode.value = configToBeUsed.ColorGrading.GradingMode;
+            colorGrading.gradingMode.overrideState = isOverride;
+        });
 
-        // // ColorGrading
-        // if (!ModProfile.TryGetSettings(out ColorGrading colorGrading)) {
-        //     colorGrading = ModProfile.AddSettings<ColorGrading>();
-        // }
-        // colorGrading.enabled.value = configToBeUsed.ColorGrading.Active == OverrideSetting.Override;
-        // colorGrading.enabled.overrideState = configToBeUsed.ColorGrading.Active == OverrideSetting.Override;
-        // // ColorGrading Brightness
-        // colorGrading.brightness.value = configToBeUsed.ColorGrading.Brightness;
-        // colorGrading.brightness.overrideState = configToBeUsed.ColorGrading.Active == OverrideSetting.Override;
-        // ColorGrading Hue
-        // colorGrading.hueShift.value = configToBeUsed.ColorGrading.HueShift;
-        // colorGrading.hueShift.overrideState = configToBeUsed.ColorGrading.Active == OverrideSetting.Override;
-        // // ColorGrading Mode
-        // colorGrading.gradingMode.value = configToBeUsed.ColorGrading.GradingMode;
-        // colorGrading.gradingMode.overrideState = configToBeUsed.ColorGrading.Active == OverrideSetting.Override;
+        ApplyModProfileSetting<AutoExposure>(configToBeUsed.AutoExposure.Active, autoExposure =>
+        {
+            var isOverride = configToBeUsed.AutoExposure.Active == OverrideSetting.Override;
+            autoExposure.keyValue.value = configToBeUsed.AutoExposure.KeyValue;
+            autoExposure.keyValue.overrideState = isOverride;
+        });
+
+        ApplyModProfileSetting<ChromaticAberration>(configToBeUsed.ChromaticAberration.Active, chromatic =>
+        {
+            var isOverride = configToBeUsed.ChromaticAberration.Active == OverrideSetting.Override;
+            chromatic.intensity.value = configToBeUsed.ChromaticAberration.Intensity;
+            chromatic.intensity.overrideState = isOverride;
+        });
+
+        ApplyModProfileSetting<DepthOfField>(configToBeUsed.DepthOfField.Active, dof =>
+        {
+            var isOverride = configToBeUsed.DepthOfField.Active == OverrideSetting.Override;
+            dof.focusDistance.value = configToBeUsed.DepthOfField.FocusDistance;
+            dof.focusDistance.overrideState = isOverride;
+            dof.aperture.value = configToBeUsed.DepthOfField.Aperture;
+            dof.aperture.overrideState = isOverride;
+        });
+
+        ApplyModProfileSetting<Grain>(configToBeUsed.Grain.Active, grain =>
+        {
+            var isOverride = configToBeUsed.Grain.Active == OverrideSetting.Override;
+            grain.intensity.value = configToBeUsed.Grain.Intensity;
+            grain.intensity.overrideState = isOverride;
+        });
+
+        ApplyModProfileSetting<LensDistortion>(configToBeUsed.LensDistortion.Active, lens =>
+        {
+            var isOverride = configToBeUsed.LensDistortion.Active == OverrideSetting.Override;
+            lens.intensity.value = configToBeUsed.LensDistortion.Intensity;
+            lens.intensity.overrideState = isOverride;
+        });
+
+        ApplyModProfileSetting<MotionBlur>(configToBeUsed.MotionBlur.Active, motionBlur =>
+        {
+            var isOverride = configToBeUsed.MotionBlur.Active == OverrideSetting.Override;
+            motionBlur.shutterAngle.value = configToBeUsed.MotionBlur.ShutterAngle;
+            motionBlur.shutterAngle.overrideState = isOverride;
+        });
+
+        ApplyModProfileSetting<Vignette>(configToBeUsed.Vignette.Active, vignette =>
+        {
+            var isOverride = configToBeUsed.Vignette.Active == OverrideSetting.Override;
+            vignette.intensity.value = configToBeUsed.Vignette.Intensity;
+            vignette.intensity.overrideState = isOverride;
+        });
 
         // Disable/Enable all world's volumes according the config
         foreach (PostProcessEffectSettings ppSettings in ppController._ppSettings)
@@ -328,8 +412,6 @@ public class PostProcessingOverrides : MelonMod
                     break;
             }
         }
-
-        _currentWorldInitialized = true;
     }
 
     [HarmonyPatch]
@@ -417,10 +499,11 @@ public class PostProcessingOverrides : MelonMod
                         SaveConfigAndApplyChanges(false);
                     }
 
-                    // Update the BTKUI menus
-                    ConfigChanged?.Invoke();
-
                     _currentWorldPPLoaded = true;
+
+                    // Update the BTKUI menus and apply the loaded world config
+                    ConfigChanged?.Invoke();
+                    __instance.ApplyOverrides();
                 }
             }
             catch (Exception e)
