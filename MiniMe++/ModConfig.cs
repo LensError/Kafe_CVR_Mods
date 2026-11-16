@@ -1,4 +1,4 @@
-﻿using ABI_RC.Core.InteractionSystem;
+using ABI_RC.Core.InteractionSystem;
 using ABI_RC.Systems.ContentClones;
 using ABI_RC.Systems.UI.UILib.UIObjects.Components;
 using Kafe.MiniMePlusPlus.Properties;
