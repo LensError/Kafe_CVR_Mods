@@ -12,9 +12,11 @@ public static class ModConfig
     private static MelonPreferences_Category _melonCategory;
 
     public static MelonPreferences_Entry<float> MeMiniMeScaleMultiplier;
-    public static MelonPreferences_Entry<bool> MeMiniSynced;
+    public static MelonPreferences_Entry<bool> MeSyncLocalMiniMe;
+    public static MelonPreferences_Entry<bool> MeSyncRemoteMiniMe;
 
-    public static ToggleButton IsSynced;
+    public static ToggleButton SyncLocalToggle;
+    public static ToggleButton SyncRemoteToggle;
     public static SliderFloat ScaledMultiplier;
 
     public static void InitializeMelonPrefs()
@@ -32,14 +34,32 @@ public static class ModConfig
             Networking.SendUpdate();
         });
 
-        MeMiniSynced = _melonCategory.CreateEntry("MiniSynced", true,
-            description: "Whether should sync all MiniMe (yours and others) or not.");
-        MeMiniSynced.OnEntryValueChanged.Subscribe((oldValue, newValue) =>
+        MeSyncLocalMiniMe = _melonCategory.CreateEntry("SyncLocalMiniMe", true,
+            description: "Whether to sync your own MiniMe to other players.");
+        MeSyncLocalMiniMe.OnEntryValueChanged.Subscribe((oldValue, newValue) =>
         {
             if (oldValue == newValue) return;
-            if (IsSynced != null)
-                IsSynced.ToggleValue = newValue;
-            Networking.SendUpdate();
+            if (SyncLocalToggle != null)
+                SyncLocalToggle.ToggleValue = newValue;
+            if (newValue)
+            {
+                Networking.UpdateMsgSubscriptions();
+                Networking.SendUpdate();
+            }
+            else
+            {
+                Networking.SendUpdate();
+                Networking.UpdateMsgSubscriptions();
+            }
+        });
+
+        MeSyncRemoteMiniMe = _melonCategory.CreateEntry("SyncRemoteMiniMe", true,
+            description: "Whether to receive and show other players' MiniMes.");
+        MeSyncRemoteMiniMe.OnEntryValueChanged.Subscribe((oldValue, newValue) =>
+        {
+            if (oldValue == newValue) return;
+            if (SyncRemoteToggle != null)
+                SyncRemoteToggle.ToggleValue = newValue;
             if (!newValue)
                 RemoteMiniMe.NukeAll();
             Networking.UpdateMsgSubscriptions();
@@ -64,13 +84,22 @@ public static class ModConfig
             MeMiniMeScaleMultiplier.Value = newValue;
         };
 
-        IsSynced = CVR_MenuManager.CVRUtilsCategory.AddToggle(
-            "MiniMe Synced",
-            "Whether should sync all MiniMe (yours and others) or not",
-            MeMiniSynced.Value);
-        IsSynced.OnValueUpdated += newValue =>
+        SyncLocalToggle = CVR_MenuManager.CVRUtilsCategory.AddToggle(
+            "Sync Own MiniMe",
+            "Whether to sync your own MiniMe to other players",
+            MeSyncLocalMiniMe.Value);
+        SyncLocalToggle.OnValueUpdated += newValue =>
         {
-            MeMiniSynced.Value = newValue;
+            MeSyncLocalMiniMe.Value = newValue;
+        };
+
+        SyncRemoteToggle = CVR_MenuManager.CVRUtilsCategory.AddToggle(
+            "Sync Remote MiniMe",
+            "Whether to receive and show other players' MiniMes",
+            MeSyncRemoteMiniMe.Value);
+        SyncRemoteToggle.OnValueUpdated += newValue =>
+        {
+            MeSyncRemoteMiniMe.Value = newValue;
         };
     }
 }
