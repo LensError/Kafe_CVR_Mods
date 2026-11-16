@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using ABI_RC.Core;
 using ABI_RC.Core.IO;
 using ABI_RC.Core.Networking;
@@ -67,11 +67,13 @@ public static class Networking
 
     public static void UpdateMsgSubscriptions()
     {
-        // We're already subscribed
-        if (_isSubscribed == ModConfig.MeMiniSynced.Value)
+        var shouldSubscribe = ModConfig.MeSyncLocalMiniMe.Value || ModConfig.MeSyncRemoteMiniMe.Value;
+
+        // We're already in the desired subscription state
+        if (_isSubscribed == shouldSubscribe)
             return;
 
-        if (ModConfig.MeMiniSynced.Value)
+        if (shouldSubscribe)
         {
             ModNetworkManager.Subscribe(ModGuid, msg => OnMessage(msg, false));
             ModNetworkManager.Subscribe(ModGuid2, msg => OnMessage(msg, true));
@@ -130,13 +132,13 @@ public static class Networking
     public static void SendUpdate(string specificUserId = null)
     {
         if (_isLocalMiniMeEnabled
-            && ModConfig.MeMiniSynced.Value
+            && ModConfig.MeSyncLocalMiniMe.Value
             && MiniMe._cloneHolderObject != null && MiniMe._cloneHolderObject.activeSelf
             && MiniMe._currentAnchorMode != MiniMe.AnchorMode.QuickMenu)
         {
             SendShowUpdate(false, specificUserId);
         }
-        else
+        else if (ModConfig.MeSyncLocalMiniMe.Value || specificUserId == null)
         {
             SendHideUpdate(specificUserId);
         }
@@ -147,6 +149,7 @@ public static class Networking
         if (_isSubscribed
             && _actuallyConnected
             && _isLocalMiniMeEnabled
+            && ModConfig.MeSyncLocalMiniMe.Value
             && MiniMe._cloneHolderObject != null
             && MiniMe._cloneHolderObject.activeSelf
             && MiniMe._currentAnchorMode != MiniMe.AnchorMode.QuickMenu)
@@ -318,6 +321,9 @@ public static class Networking
 
     private static void OnMessage(ModNetworkMessage msg, bool isUpdate)
     {
+        if (!ModConfig.MeSyncRemoteMiniMe.Value)
+            return;
+
         msg.Read(out byte msgTypeByte);
         MsgType msgType = (MsgType)msgTypeByte;
 

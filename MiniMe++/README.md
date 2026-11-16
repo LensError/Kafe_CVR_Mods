@@ -10,7 +10,7 @@ Adds functionality to MiniMe
   - Requires the other person to have the mod
   - Requires the other person anchor mode to be set to playspace or world
   - Requires MiniMe to be enabled :)
-- Disable/Enable the Sync
-  - Removes your MiniMe being visible by other people
-  - Removes you viewing other people MiniMe
-  - Tells the GS to stop sending and receiving the messages
+- Disable/Enable Sync separately for Own and Remote MiniMe
+  - **Sync Own MiniMe:** Controls whether your MiniMe is synced to other people
+  - **Sync Remote MiniMe:** Controls whether you receive and view other people's MiniMes
+  - Unsubscribes from ModNetwork messages when both are disabled
